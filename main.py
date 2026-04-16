@@ -6,6 +6,7 @@ import json
 import network
 import ubinascii
 import settings
+import os
 
 # --- Pines ---
 Pin_DHT22 = 15
@@ -28,33 +29,34 @@ estado = {
 temperatura_actual = 0.0
 humedad_actual = 0.0
 
-ARCHIVO_DB = "estado.json"
 
-def cargar_estado():
+def guardar_configuracion():
+    # Volcamos directamente nuestro diccionario 'estado' al archivo
+    with open('config.json', 'w') as f:
+        json.dump(estado, f)
+    print("Configuración guardada en config.json")
+
+def cargar_configuracion():
     global estado
     try:
-        with open(ARCHIVO_DB, "r") as f:
-            datos_guardados = json.load(f)
-            for clave in estado.keys():
-                if clave in datos_guardados:
-                    estado[clave] = datos_guardados[clave]
-        print("Estado cargado desde JSON:", estado)
-    except OSError:
-        # Si falla se crea un archivo con valores por defecto
-        print("Archivo JSON no encontrado. Creando nuevo")
-        guardar_estado()
-
-
-def guardar_estado():
-    try:
-        with open(ARCHIVO_DB, "w") as f:
-            json.dump(estado, f)
-        print("Estado guardado en memoria de la Raspberry Pi")
-    except OSError:
-        print("Error al guardar el estado en JSON.")
+        # Revisa si el archivo existe en la memoria de la placa
+        if 'config.json' in os.listdir():
+            with open('config.json', 'r') as f:
+                config_data = json.load(f)
+                # El .get() es genial: si no encuentra la clave, usa el valor por defecto que ya teníamos
+                estado['setpoint'] = config_data.get("setpoint", estado['setpoint'])
+                estado['periodo'] = config_data.get("periodo", estado['periodo'])
+                estado['modo'] = config_data.get("modo", estado['modo'])
+                estado['rele'] = config_data.get("rele", estado['rele'])
+            print(f"Configuración cargada desde config.json: {estado}")
+        else:
+            print("No se encontró config.json, usando valores por defecto.")
+            guardar_configuracion() # Crea el archivo inicial
+    except Exception as e:
+        print("Error al cargar config.json:", e)
 
 #Se carga el estado al inicial el programa
-cargar_estado()
+cargar_configuracion()
 
 #Obtener ID del dispositivo a partir de la MAC
 wlan = network.WLAN(network.STA_IF)
@@ -78,19 +80,16 @@ async def destello():
 async def leer_mensajes(client):
     async for topic, msg, retained in client.queue: 
         topico_completo = topic.decode()
-        mensaje = msg.decode()
+        mensaje = msg.decode().strip()
         #Me quedo unicamente con el comando (setpoint, periodo, modo, rele o destello) para procesarlo
         comando = topico_completo.split('/')[-1] 
         print(f'Recibido -> Comando: {comando} | Mensaje: {mensaje}') 
-        
-        #Pongo bandera en false, indicando que no se tiene que guardar
-        actualizar_db = False
 
         if comando == 'setpoint':
             try:
                 estado["setpoint"] = float(mensaje)
                 print(f"Setpoint actualizado a: {estado['setpoint']}")
-                actualizar_db = True
+                guardar_configuracion()
             except ValueError:
                 print("Error: El setpoint debe ser un número.")
                 
@@ -98,7 +97,7 @@ async def leer_mensajes(client):
             try:
                 estado['periodo'] = int(mensaje)
                 print(f"Periodo actualizado a: {estado['periodo']}")
-                actualizar_db = True
+                guardar_configuracion()
             except ValueError:
                 print("Error: El periodo debe ser un entero.")
                 
@@ -106,28 +105,29 @@ async def leer_mensajes(client):
             if mensaje in ['auto', 'manual']:
                 estado['modo'] = mensaje
                 print(f"Modo cambiado a: {estado['modo']}")
-                actualizar_db = True
+                guardar_configuracion()
             else:
                 print("Error: El modo solo puede ser 'auto' o 'manual'.")
                 
         elif comando == 'rele':
-            if estado['modo'] == 'manual':
-                try:
-                    estado['rele'] = int(mensaje)
-                    print(f"Relé cambiado a: {estado['rele']}")
-                    actualizar_db = True
-                except ValueError:
-                    print("Error: El relé solo acepta 0 o 1.")
-            else:
-                print("Ignorado: Se intentó mover el relé pero el modo es AUTO.")
+            if mensaje == 'relé':
+                if estado['modo'] == 'manual':
+                    
+                    if estado['rele'] == 0:
+                        estado['rele'] = 1
+                    else:
+                        estado['rele'] = 0
+                        
+                    print(f"Relé alternado a: {estado['rele']}")
+                    guardar_configuracion()
+                else:
+                    print("Ignorado: Se intentó mover el relé pero el modo es AUTO.")
                 
         elif comando == 'destello':
-            print("Orden de destello recibida")
-            asyncio.create_task(destello())
+            if mensaje == 'destello':
+                print("Orden de destello recibida")
+                asyncio.create_task(destello())
         
-        #Si se cambió algo se hace que se guarde en el JSON
-        if actualizar_db:
-            guardar_estado()
 
 #Función para publicar los datos
 async def publicar_datos(client):
@@ -148,6 +148,7 @@ async def publicar_datos(client):
         except OSError:
             pass
 
+#Funcion donde se subscrive a los topicos que son de interés
 async def conexion(client):
     while True:
         await client.up.wait()
@@ -162,6 +163,7 @@ async def conexion(client):
 
 async def wifi_han(state):
     pass 
+
 
 async def main(client):
     global temperatura_actual, humedad_actual
@@ -179,11 +181,15 @@ async def main(client):
             
             if estado['modo'] == 'auto':
                 if temperatura_actual >= estado['setpoint']:
-                    pin_rele.value(0)
-                    estado['rele'] = 1
+                    pin_rele.value(0) # Enciende el relé
+                    if estado['rele'] != 1:
+                        estado['rele'] = 1
+                        guardar_configuracion() # Guarda solo si cambió el estado del relé 
                 else:
-                    pin_rele.value(1)
-                    estado['rele'] = 0
+                    pin_rele.value(1) # Apaga el relé
+                    if estado['rele'] != 0:
+                        estado['rele'] = 0
+                        guardar_configuracion()
         except OSError:
             print("Error de lectura en termostato")        
         
