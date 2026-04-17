@@ -31,7 +31,6 @@ humedad_actual = 0.0
 
 
 def guardar_configuracion():
-    # Volcamos directamente nuestro diccionario 'estado' al archivo
     with open('config.json', 'w') as f:
         json.dump(estado, f)
     print("Configuración guardada en config.json")
@@ -43,7 +42,6 @@ def cargar_configuracion():
         if 'config.json' in os.listdir():
             with open('config.json', 'r') as f:
                 config_data = json.load(f)
-                # El .get() es genial: si no encuentra la clave, usa el valor por defecto que ya teníamos
                 estado['setpoint'] = config_data.get("setpoint", estado['setpoint'])
                 estado['periodo'] = config_data.get("periodo", estado['periodo'])
                 estado['modo'] = config_data.get("modo", estado['modo'])
