@@ -108,18 +108,19 @@ async def leer_mensajes(client):
                 print("Error: El modo solo puede ser 'auto' o 'manual'.")
                 
         elif comando == 'rele':
-            if mensaje == 'relé':
-                if estado['modo'] == 'manual':
-                    
-                    if estado['rele'] == 0:
-                        estado['rele'] = 1
+            if estado['modo'] == 'manual':
+                try:
+                    valor = int(mensaje) 
+                    if valor in [0, 1]:
+                        estado['rele'] = valor
+                        print(f"Relé cambiado a: {estado['rele']}")
+                        guardar_configuracion()
                     else:
-                        estado['rele'] = 0
-                        
-                    print(f"Relé alternado a: {estado['rele']}")
-                    guardar_configuracion()
-                else:
-                    print("Ignorado: Se intentó mover el relé pero el modo es AUTO.")
+                        print("Error: El relé solo acepta 0 o 1.")
+                except ValueError:
+                    print("Error: El mensaje debe ser un número (0 o 1).")
+            else:
+                print("Ignorado: Se intentó mover el relé pero el modo es AUTO.")
                 
         elif comando == 'destello':
             if mensaje == 'destello':
@@ -157,7 +158,7 @@ async def conexion(client):
         await client.subscribe(f"{ID_Dispositivo}/periodo", 1)
         await client.subscribe(f"{ID_Dispositivo}/destello", 1)
         await client.subscribe(f"{ID_Dispositivo}/modo", 1)
-        await client.subscribe(f"{ID_Dispositivo}/rele", 1)
+        await client.subscribe(f"{ID_Dispositivo}/relé", 1)
 
 async def wifi_han(state):
     pass 
